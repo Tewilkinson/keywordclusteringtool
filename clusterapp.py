@@ -3,21 +3,12 @@ import pandas as pd
 import openai
 import numpy as np
 from sklearn.cluster import KMeans
-from dotenv import load_dotenv
 import os
 import json
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from dotenv import load_dotenv
 
-# --- Load environment variables and secrets ---
+# --- Load secrets ---
 openai.api_key = st.secrets["OPENAI_API_KEY"]
-
-# --- Google Sheets Auth via secrets ---
-gspread_json = st.secrets["GSPREAD_JSON"]
-creds_dict = json.loads(gspread_json)
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-gs_client = gspread.authorize(creds)
 
 # --- Embedding helper ---
 def get_embedding(text, model="text-embedding-ada-002"):
@@ -63,12 +54,5 @@ if st.button("Cluster Keywords") and keyword_input:
     st.success("Done! View your clustered results below:")
     st.dataframe(df.sort_values("Cluster ID"))
 
-    # Export to Google Sheets
-    sheet_name = st.text_input("Enter Google Sheet name for export", value="Clustered Keywords")
-    if st.button("Export to Google Sheets"):
-        sheet = gs_client.create(sheet_name)
-        sheet.share('', perm_type='anyone', role='writer')  # Public write for quick testing (adjust in prod)
-        ws = sheet.sheet1
-        ws.update([df.columns.values.tolist()] + df.values.tolist())
-        st.success(f"Exported to Google Sheets: {sheet.url}")
-        st.markdown(f"[Open Sheet]({sheet.url})")
+    csv = df.to_csv(index=False)
+    st.download_button("📥 Download Clustered CSV", data=csv, file_name="clustered_keywords.csv", mime="text/csv")
