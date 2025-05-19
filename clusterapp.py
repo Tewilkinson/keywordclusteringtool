@@ -3,20 +3,27 @@ import pandas as pd
 import openai
 import numpy as np
 from sklearn.cluster import KMeans
-from openai.embeddings_utils import get_embedding
 from dotenv import load_dotenv
 import os
+import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- Load environment variables ---
-load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# --- Load environment variables and secrets ---
+openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# --- Google Sheets Auth ---
+# --- Google Sheets Auth via secrets ---
+gspread_json = st.secrets["GSPREAD_JSON"]
+creds_dict = json.loads(gspread_json)
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("gspread_credentials.json", scope)
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 gs_client = gspread.authorize(creds)
+
+# --- Embedding helper ---
+def get_embedding(text, model="text-embedding-ada-002"):
+    text = text.replace("\n", " ")
+    response = openai.Embedding.create(input=[text], model=model)
+    return response['data'][0]['embedding']
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Keyword Cluster App", layout="wide")
@@ -28,7 +35,7 @@ if st.button("Cluster Keywords") and keyword_input:
     keywords = [k.strip() for k in keyword_input.splitlines() if k.strip()]
 
     st.info("Generating embeddings... This may take a moment.")
-    embeddings = [get_embedding(k, engine="text-embedding-ada-002") for k in keywords]
+    embeddings = [get_embedding(k) for k in keywords]
 
     n_clusters = st.slider("Select number of clusters", 2, min(15, len(keywords)), 5)
 
