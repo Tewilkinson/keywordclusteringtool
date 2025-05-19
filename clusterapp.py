@@ -1,20 +1,20 @@
 import streamlit as st
 import pandas as pd
-import openai
 import numpy as np
 from sklearn.cluster import KMeans
 import os
 import json
+from openai import OpenAI
 from dotenv import load_dotenv
 
-# --- Load secrets ---
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+# --- OpenAI Client ---
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # --- Embedding helper ---
 def get_embedding(text, model="text-embedding-ada-002"):
     text = text.replace("\n", " ")
-    response = openai.Embedding.create(input=[text], model=model)
-    return response['data'][0]['embedding']
+    response = client.embeddings.create(input=[text], model=model)
+    return response.data[0].embedding
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Keyword Cluster App", layout="wide")
@@ -42,12 +42,12 @@ if st.button("Cluster Keywords") and keyword_input:
     for label in sorted(df["Cluster ID"].unique()):
         sample_keywords = df[df["Cluster ID"] == label]["Keyword"].head(5).tolist()
         prompt = f"Group the following keywords under a common product or topic name:\n{', '.join(sample_keywords)}\n\nReturn only the cluster name."
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
             temperature=0
         )
-        cluster_names[label] = response["choices"][0]["message"]["content"].strip()
+        cluster_names[label] = response.choices[0].message.content.strip()
 
     df["Cluster Name"] = df["Cluster ID"].map(cluster_names)
 
