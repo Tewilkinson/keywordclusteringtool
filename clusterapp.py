@@ -1,58 +1,44 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-from sklearn.cluster import KMeans
-import os
-import json
 from openai import OpenAI
-from dotenv import load_dotenv
+import os
 
 # --- OpenAI Client ---
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# --- Embedding helper ---
-def get_embedding(text, model="text-embedding-ada-002"):
-    text = text.replace("\n", " ")
-    response = client.embeddings.create(input=[text], model=model)
-    return response.data[0].embedding
-
 # --- Streamlit UI ---
-st.set_page_config(page_title="Keyword Cluster App", layout="wide")
-st.title("🔗 Keyword Clustering Tool")
+st.set_page_config(page_title="Keyword Classifier App", layout="wide")
+st.title("🔍 Keyword Classification Tool")
 
-keyword_input = st.text_area("Paste your keywords (one per line)", height=300)
+st.markdown("""
+Paste your list of keywords below, and define the list of categories you want to classify them into.
+Each keyword will be assigned to the closest matching category using GPT.
+""")
 
-if st.button("Cluster Keywords") and keyword_input:
+keyword_input = st.text_area("🔤 Paste keywords (one per line):", height=300)
+category_input = st.text_area("🏷️ Define your categories (comma-separated):", value="Snowflake, Snowflake Database, Snowflake Certification, Snowflake Pricing, Snowflake Training, Snowflake Cortex, Snowflake Software, Snowflake Financial Reports, Snowflake Summit")
+
+if st.button("Classify Keywords") and keyword_input and category_input:
     keywords = [k.strip() for k in keyword_input.splitlines() if k.strip()]
+    categories = [c.strip() for c in category_input.split(",") if c.strip()]
 
-    st.info("Generating embeddings... This may take a moment.")
-    embeddings = [get_embedding(k) for k in keywords]
+    df = pd.DataFrame({"Keyword": keywords})
+    cluster_names = []
 
-    n_clusters = st.slider("Select number of clusters", 2, min(15, len(keywords)), 5)
+    with st.spinner("Classifying keywords with GPT..."):
+        for kw in keywords:
+            prompt = f"Assign the keyword '{kw}' to one of the following clusters: {', '.join(categories)}.\n\nJust return the best matching cluster name."
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0
+            )
+            cluster = response.choices[0].message.content.strip()
+            cluster_names.append(cluster)
 
-    st.info("Clustering keywords...")
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-    labels = kmeans.fit_predict(embeddings)
-
-    df = pd.DataFrame({"Keyword": keywords, "Cluster ID": labels})
-
-    # Auto-name clusters using GPT
-    st.info("Naming clusters using GPT...")
-    cluster_names = {}
-    for label in sorted(df["Cluster ID"].unique()):
-        sample_keywords = df[df["Cluster ID"] == label]["Keyword"].head(5).tolist()
-        prompt = f"Group the following keywords under a common product or topic name:\n{', '.join(sample_keywords)}\n\nReturn only the cluster name."
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0
-        )
-        cluster_names[label] = response.choices[0].message.content.strip()
-
-    df["Cluster Name"] = df["Cluster ID"].map(cluster_names)
-
-    st.success("Done! View your clustered results below:")
-    st.dataframe(df.sort_values("Cluster ID"))
+    df["Assigned Cluster"] = cluster_names
+    st.success("Classification complete!")
+    st.dataframe(df)
 
     csv = df.to_csv(index=False)
-    st.download_button("📥 Download Clustered CSV", data=csv, file_name="clustered_keywords.csv", mime="text/csv")
+    st.download_button("📥 Download Classified CSV", data=csv, file_name="classified_keywords.csv", mime="text/csv")
