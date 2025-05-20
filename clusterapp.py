@@ -40,7 +40,10 @@ if st.button("Cluster Keywords") and keyword_input:
     cluster_names = {}
     for label in sorted(df["Cluster ID"].unique()):
         sample_keywords = df[df["Cluster ID"] == label]["Keyword"].head(5).tolist()
-        prompt = f"Group the following keywords under a common topic name:\n{', '.join(sample_keywords)}\n\nReturn only the cluster name."
+        prompt = (
+            f"Name the common theme or product category of these keywords: {', '.join(sample_keywords)}.\n"
+            f"Return only a short, specific cluster name. Be precise. Avoid generic terms like 'Snowflake Computing' or 'General Info'."
+        )
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
