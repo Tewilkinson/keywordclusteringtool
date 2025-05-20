@@ -27,17 +27,19 @@ if st.button("Classify Keywords") and keyword_input:
     try:
         for i, kw in enumerate(keywords):
             prompt = (
-                f"Assign the keyword '{kw}' to the most appropriate product or topic category.\n"
-                f"Use specific product groupings based on Snowflake’s offerings.\n"
+                f"You are a product taxonomy expert.\n"
+                f"Classify the keyword: {kw}\n"
+                f"Return only the clean category name that best fits the keyword.\n"
+                f"Do NOT repeat the keyword in your answer.\n"
                 f"Examples:\n"
-                f"- 'snowflake cost' → Snowflake Pricing\n"
-                f"- 'snowflake certification' → Snowflake Certification\n"
-                f"- 'snowflake course' → Snowflake Education\n"
-                f"- 'snowflake earnings' → Snowflake Financials\n"
-                f"- 'snowflake cortex' → Snowflake Cortex\n"
-                f"- 'snowflake summit' → Snowflake Summit\n"
-                f"- 'snowflake logo' → Snowflake Logo\n"
-                f"Do NOT overgeneralize. Return only the most specific, correct category name."
+                f"snowflake cost → Snowflake Pricing\n"
+                f"snowflake certification → Snowflake Certification\n"
+                f"snowflake course → Snowflake Education\n"
+                f"snowflake earnings → Snowflake Financials\n"
+                f"snowflake cortex → Snowflake Cortex\n"
+                f"snowflake summit → Snowflake Summit\n"
+                f"snowflake logo → Snowflake Branding\n"
+                f"Return only the final category label, nothing else."
             )
             response = client.chat.completions.create(
                 model="gpt-4-turbo",
@@ -48,7 +50,7 @@ if st.button("Classify Keywords") and keyword_input:
             category_labels.append(category)
             progress.progress((i + 1) / len(keywords))
             status_text.text(f"Classified {i + 1} of {len(keywords)}")
-            time.sleep(0.5)  # minor delay for stability
+            time.sleep(0.5)
 
         df["Assigned Category"] = category_labels
         st.success("Classification complete!")
