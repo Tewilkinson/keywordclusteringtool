@@ -25,8 +25,16 @@ if st.button("Classify Keywords") and keyword_input:
         for kw in keywords:
             prompt = (
                 f"Assign the keyword '{kw}' to the most appropriate product or topic category.\n"
-                f"Be specific. Example categories include: Snowflake Pricing, Snowflake Education, Snowflake Database, Snowflake Certification, Snowflake Cortex, Snowflake Summit, Snowflake Financials, Snowflake Logo, Snowflake Company.\n"
-                f"Return only the best-fitting category name."
+                f"Use specific product groupings based on Snowflake’s offerings.\n"
+                f"Examples:\n"
+                f"- 'snowflake cost' → Snowflake Pricing\n"
+                f"- 'snowflake certification' → Snowflake Certification\n"
+                f"- 'snowflake course' → Snowflake Education\n"
+                f"- 'snowflake earnings' → Snowflake Financials\n"
+                f"- 'snowflake cortex' → Snowflake Cortex\n"
+                f"- 'snowflake summit' → Snowflake Summit\n"
+                f"- 'snowflake logo' → Snowflake Logo\n"
+                f"Do NOT overgeneralize. Return only the most specific, correct category name."
             )
             response = client.chat.completions.create(
                 model="gpt-4",
