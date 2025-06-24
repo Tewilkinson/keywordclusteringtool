@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 from sklearn.cluster import AffinityPropagation
+from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import re
 
@@ -10,61 +11,47 @@ def main():
     st.title("🤖 Auto-Clustering Keyword Tool")
     st.markdown("""
     Paste your keywords (one per line) and let BERT + Affinity Propagation  
-    automatically discover clusters and name them by a core phrase.
+    automatically discover & name clusters (singletons get merged).
     """)
 
-    keyword_input = st.text_area("🔤 Keywords:", height=300)
-    keywords = [k.strip() for k in keyword_input.splitlines() if k.strip()]
+    # 1) Input
+    raw = st.text_area("🔤 Keywords:", height=300)
+    keywords = [k.strip() for k in raw.splitlines() if k.strip()]
 
     if st.button("Cluster Keywords") and keywords:
-        # 1. Embed + normalize
+        # 2) Embed + normalize
         model = SentenceTransformer("all-MiniLM-L6-v2")
-        embeddings = model.encode(keywords, normalize_embeddings=True)
+        emb = model.encode(keywords, normalize_embeddings=True)
 
-        # 2. Build cosine-similarity matrix
-        sim_matrix = np.dot(embeddings, embeddings.T)
+        # 3) Cosine-similarity matrix
+        sim = np.dot(emb, emb.T)
 
-        # 3. Affinity Propagation (auto-clusters + exemplars)
+        # 4) Affinity Propagation
         ap = AffinityPropagation(affinity="precomputed", random_state=42)
-        ap.fit(sim_matrix)
-        labels = ap.labels_
+        ap.fit(sim)
+        labels = ap.labels_.copy()
 
-        # 4. Cluster naming by core token + shortest phrase
-        stop_words = {"best", "free", "online", "software", "generator"}
-        cluster_names = {}
+        # 5) Build initial clusters
+        clusters = {
+            cid: [i for i, lab in enumerate(labels) if lab == cid]
+            for cid in np.unique(labels)
+        }
 
-        for cluster_id in np.unique(labels):
-            members = np.where(labels == cluster_id)[0]
-
-            # collect non-stop tokens
-            tokens = []
-            for idx in members:
-                for w in re.findall(r"\w+", keywords[idx].lower()):
-                    if w not in stop_words:
-                        tokens.append(w)
-
-            primary = max(set(tokens), key=tokens.count) if tokens else ""
-            candidates = [keywords[idx] for idx in members if primary in keywords[idx].lower()]
-            if candidates:
-                name = min(candidates, key=lambda s: len(s))
-            else:
-                name = keywords[members[0]]
-
-            cluster_names[cluster_id] = name
-
-        # 5. Build results DataFrame
-        df = pd.DataFrame({
-            "Keyword": keywords,
-            "Cluster": [cluster_names[label] for label in labels]
-        })
-
-        # — Display —
-        st.success(f"Found {len(cluster_names)} clusters.")
-        st.dataframe(df)
-
-        # — Download —
-        csv = df.to_csv(index=False)
-        st.download_button("📥 Download CSV", data=csv, file_name="clusters.csv", mime="text/csv")
-
-if __name__ == "__main__":
-    main()
+        # 6) Merge any singleton clusters into nearest cluster
+        #    Compute a mean-embedding for each cluster
+        cluster_means = {
+            cid: emb[inds].mean(axis=0)
+            for cid, inds in clusters.items()
+        }
+        for cid, inds in list(clusters.items()):
+            if len(inds) == 1:
+                idx = inds[0]
+                # find best other cluster by similarity to its mean
+                sims = {
+                    other: cosine_similarity(
+                        emb[idx:idx+1], mean.reshape(1, -1)
+                    )[0][0]
+                    for other, mean in cluster_means.items()
+                    if other != cid
+                }
+                best = max(sims
