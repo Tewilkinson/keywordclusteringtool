@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from transformers import pipeline
 import time
+import torch
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Keyword Classifier", layout="wide")
@@ -13,8 +14,8 @@ Paste your keywords below. This tool will automatically assign each keyword to a
 
 keyword_input = st.text_area("🔤 Paste keywords (one per line):", height=300)
 
-# Load the pre-trained classifier model
-classifier = pipeline("zero-shot-classification")
+# Use a smaller model for better performance if resources are limited
+classifier = pipeline("zero-shot-classification", model="distilbert-base-uncased")
 
 # Available categories for classification
 candidate_labels = [
@@ -30,6 +31,9 @@ def classify_keywords(keywords):
 
     try:
         for i, kw in enumerate(keywords):
+            if not kw.strip():
+                continue  # Skip empty keywords
+            
             # Use the zero-shot classification to predict categories for each keyword
             result = classifier(kw, candidate_labels)
             category = result['labels'][0]  # Take the top predicted label
