@@ -33,9 +33,9 @@ def hierarchical_cluster_and_name(keywords, model, progress, status_text, level1
     progress.progress(step / total_steps)
     step += 1
 
-    # 3) Level 1 clustering (Agglomerative)
+    # 3) Level 1 clustering
     status_text.text(f"{step}/{total_steps} – Level 1 clustering…")
-    dist = 1 - sim  # cosine distance
+    dist = 1 - sim
     agg = AgglomerativeClustering(
         n_clusters=None,
         distance_threshold=level1_threshold,
@@ -46,29 +46,27 @@ def hierarchical_cluster_and_name(keywords, model, progress, status_text, level1
     progress.progress(step / total_steps)
     step += 1
 
-    # 4) Name Level 1 clusters
+    # 4) Name Level 1 clusters by centroid representative + title-case
     status_text.text(f"{step}/{total_steps} – Naming Level 1 clusters…")
     level1_clusters = {cid: [i for i, lab in enumerate(lvl1_labels) if lab == cid]
                        for cid in np.unique(lvl1_labels)}
-    stop_words = {"best", "free", "online", "software", "generator"}
     level1_names = {}
     for cid, idxs in level1_clusters.items():
-        tokens = []
-        for i in idxs:
-            tokens += [w for w in re.findall(r"\w+", keywords[i].lower()) if w not in stop_words]
-        if tokens:
-            primary = max(set(tokens), key=tokens.count)
-            candidates = [keywords[i] for i in idxs if primary in keywords[i].lower()]
-            level1_names[cid] = min(candidates, key=len) if candidates else keywords[idxs[0]]
-        else:
-            level1_names[cid] = keywords[idxs[0]]
+        mean_vec = emb[idxs].mean(axis=0, keepdims=True)
+        sims = cosine_similarity(emb[idxs], mean_vec).flatten()
+        rep = idxs[int(np.argmax(sims))]
+        # fallback: if shortest rep is much shorter than longest candidate, use the longest phrase
+        lengths = [len(keywords[i]) for i in idxs]
+        longest = idxs[int(np.argmax(lengths))]
+        if len(keywords[rep]) < len(keywords[longest]):
+            rep = longest
+        level1_names[cid] = keywords[rep].title()
     progress.progress(step / total_steps)
     step += 1
 
-    # 5) Level 2 clustering (Affinity Propagation within each Level 1 group)
+    # 5) Level 2 clustering
     status_text.text(f"{step}/{total_steps} – Level 2 clustering…")
     sub_label_pairs = [None] * len(keywords)
-
     for cid, idxs in level1_clusters.items():
         if len(idxs) > 1:
             sub_sim = sim[np.ix_(idxs, idxs)]
@@ -78,11 +76,10 @@ def hierarchical_cluster_and_name(keywords, model, progress, status_text, level1
                 sub_label_pairs[idx] = (cid, int(ap.labels_[j]))
         else:
             sub_label_pairs[idxs[0]] = (cid, 0)
-
     progress.progress(step / total_steps)
     step += 1
 
-    # 6) Name subclusters
+    # 6) Name subclusters by centroid representative + fallback + title-case
     status_text.text(f"{step}/{total_steps} – Naming subclusters…")
     clusters2 = {}
     for i, pair in enumerate(sub_label_pairs):
@@ -90,15 +87,15 @@ def hierarchical_cluster_and_name(keywords, model, progress, status_text, level1
 
     subcluster_names = {}
     for pair, idxs in clusters2.items():
-        tokens = []
-        for i in idxs:
-            tokens += [w for w in re.findall(r"\w+", keywords[i].lower()) if w not in stop_words]
-        if tokens:
-            primary = max(set(tokens), key=tokens.count)
-            candidates = [keywords[i] for i in idxs if primary in keywords[i].lower()]
-            subcluster_names[pair] = min(candidates, key=len) if candidates else keywords[idxs[0]]
-        else:
-            subcluster_names[pair] = keywords[idxs[0]]
+        mean_vec = emb[idxs].mean(axis=0, keepdims=True)
+        sims = cosine_similarity(emb[idxs], mean_vec).flatten()
+        rep = idxs[int(np.argmax(sims))]
+        # fallback: prefer the longest phrase if centroid picks a shorter one
+        lengths = [len(keywords[i]) for i in idxs]
+        longest = idxs[int(np.argmax(lengths))]
+        if len(keywords[rep]) < len(keywords[longest]):
+            rep = longest
+        subcluster_names[pair] = keywords[rep].title()
     progress.progress(step / total_steps)
     step += 1
 
