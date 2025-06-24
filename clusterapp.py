@@ -11,6 +11,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 def load_model():
     return SentenceTransformer("all-MiniLM-L6-v2")
 
+
 def hierarchical_cluster_and_name(keywords, model, progress, status_text, level1_threshold=0.6):
     """
     Perform 2-level clustering:
@@ -35,7 +36,7 @@ def hierarchical_cluster_and_name(keywords, model, progress, status_text, level1
 
     # 3) Level 1 clustering
     status_text.text(f"{step}/{total_steps} – Level 1 clustering…")
-    dist = 1 - sim
+    dist = 1 - sim  # cosine distance
     agg = AgglomerativeClustering(
         n_clusters=None,
         distance_threshold=level1_threshold,
@@ -46,25 +47,27 @@ def hierarchical_cluster_and_name(keywords, model, progress, status_text, level1
     progress.progress(step / total_steps)
     step += 1
 
-    # 4) Name Level 1 clusters by centroid representative + title-case
+    # 4) Name Level 1 clusters by core token + shortest phrase
     status_text.text(f"{step}/{total_steps} – Naming Level 1 clusters…")
+    stop_words = {"best", "free", "online", "software", "generator"}
     level1_clusters = {cid: [i for i, lab in enumerate(lvl1_labels) if lab == cid]
                        for cid in np.unique(lvl1_labels)}
     level1_names = {}
     for cid, idxs in level1_clusters.items():
-        mean_vec = emb[idxs].mean(axis=0, keepdims=True)
-        sims = cosine_similarity(emb[idxs], mean_vec).flatten()
-        rep = idxs[int(np.argmax(sims))]
-        # fallback: if shortest rep is much shorter than longest candidate, use the longest phrase
-        lengths = [len(keywords[i]) for i in idxs]
-        longest = idxs[int(np.argmax(lengths))]
-        if len(keywords[rep]) < len(keywords[longest]):
-            rep = longest
-        level1_names[cid] = keywords[rep].title()
+        tokens = []
+        for i in idxs:
+            tokens += [w for w in re.findall(r"\w+", keywords[i].lower()) if w not in stop_words]
+        if tokens:
+            primary = max(set(tokens), key=tokens.count)
+            candidates = [keywords[i] for i in idxs if primary in keywords[i].lower()]
+            name = min(candidates, key=len) if candidates else keywords[idxs[0]]
+        else:
+            name = keywords[idxs[0]]
+        level1_names[cid] = name
     progress.progress(step / total_steps)
     step += 1
 
-    # 5) Level 2 clustering
+    # 5) Level 2 clustering within each Level 1 group
     status_text.text(f"{step}/{total_steps} – Level 2 clustering…")
     sub_label_pairs = [None] * len(keywords)
     for cid, idxs in level1_clusters.items():
@@ -79,23 +82,23 @@ def hierarchical_cluster_and_name(keywords, model, progress, status_text, level1
     progress.progress(step / total_steps)
     step += 1
 
-    # 6) Name subclusters by centroid representative + fallback + title-case
+    # 6) Name subclusters by core token + shortest phrase
     status_text.text(f"{step}/{total_steps} – Naming subclusters…")
+    subcluster_names = {}
     clusters2 = {}
     for i, pair in enumerate(sub_label_pairs):
         clusters2.setdefault(pair, []).append(i)
-
-    subcluster_names = {}
     for pair, idxs in clusters2.items():
-        mean_vec = emb[idxs].mean(axis=0, keepdims=True)
-        sims = cosine_similarity(emb[idxs], mean_vec).flatten()
-        rep = idxs[int(np.argmax(sims))]
-        # fallback: prefer the longest phrase if centroid picks a shorter one
-        lengths = [len(keywords[i]) for i in idxs]
-        longest = idxs[int(np.argmax(lengths))]
-        if len(keywords[rep]) < len(keywords[longest]):
-            rep = longest
-        subcluster_names[pair] = keywords[rep].title()
+        tokens = []
+        for i in idxs:
+            tokens += [w for w in re.findall(r"\w+", keywords[i].lower()) if w not in stop_words]
+        if tokens:
+            primary = max(set(tokens), key=tokens.count)
+            candidates = [keywords[i] for i in idxs if primary in keywords[i].lower()]
+            name = min(candidates, key=len) if candidates else keywords[idxs[0]]
+        else:
+            name = keywords[idxs[0]]
+        subcluster_names[pair] = name
     progress.progress(step / total_steps)
     step += 1
 
