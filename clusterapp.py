@@ -2,155 +2,127 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import re
-from sentence_transformers import SentenceTransformer
 
-# — cache the embedding model —
+from sentence_transformers import SentenceTransformer
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.metrics.pairwise import cosine_similarity
+
+# — Cache the model —
 @st.cache_resource
 def load_model():
     return SentenceTransformer("all-MiniLM-L6-v2")
 
-def union_find(similarity, threshold):
-    """
-    Given an NxN sim matrix, cluster via union-find on sim>threshold.
-    Returns a list 'labels' of length N.
-    """
-    N = similarity.shape[0]
-    parent = list(range(N))
-    def find(i):
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-    def union(i, j):
-        ri, rj = find(i), find(j)
-        if ri != rj:
-            parent[rj] = ri
-
-    for i in range(N):
-        for j in range(i+1, N):
-            if similarity[i, j] > threshold:
-                union(i, j)
-
-    # finalize labels
-    labels = [find(i) for i in range(N)]
-    # reindex to 0…K-1
-    uniq = sorted(set(labels))
-    mapping = {old: new for new, old in enumerate(uniq)}
-    return [mapping[l] for l in labels]
-
-def name_cluster(keywords, inds, stop_words):
-    # pick core token + shortest phrase
+def name_cluster(keywords, inds):
+    stop = {"best","free","online","software","generator"}
     tokens = []
     for i in inds:
         for w in re.findall(r"\w+", keywords[i].lower()):
-            if w not in stop_words:
+            if w not in stop:
                 tokens.append(w)
     if tokens:
-        primary = max(set(tokens), key=tokens.count)
-        cands = [keywords[i] for i in inds if primary in keywords[i].lower()]
+        core = max(set(tokens), key=tokens.count)
+        cands = [keywords[i] for i in inds if core in keywords[i].lower()]
         return min(cands, key=len) if cands else keywords[inds[0]]
-    else:
-        return keywords[inds[0]]
+    return keywords[inds[0]]
 
-def cluster_and_hierarchy(keywords, model, progress, status_text):
-    steps = 7
-    step = 1
+def cluster_hierarchy(keywords, model, progress, status):
+    steps = 6
+    s = 1
 
-    # 1) Embed
-    status_text.text(f"{step}/{steps} – Embedding keywords…")
+    # 1. Embed
+    status.text(f"{s}/{steps} – Embedding…")
     emb = model.encode(keywords, normalize_embeddings=True)
-    progress.progress(step/steps)
-    step += 1
+    progress.progress(s/steps); s+=1
 
-    # 2) Similarity matrix
-    status_text.text(f"{step}/{steps} – Building similarity matrix…")
-    sim = np.dot(emb, emb.T)
-    progress.progress(step/steps)
-    step += 1
+    # 2. Cosine distance matrix
+    status.text(f"{s}/{steps} – Computing distances…")
+    sim = cosine_similarity(emb)
+    dist = 1 - sim
+    progress.progress(s/steps); s+=1
 
-    # 3) Top‐level clustering
-    status_text.text(f"{step}/{steps} – Top‐level clustering…")
-    top_labels = union_find(sim, threshold=0.5)
-    progress.progress(step/steps)
-    step += 1
+    # 3. Top‐level clustering
+    status.text(f"{s}/{steps} – Top‐level clustering…")
+    top_cluster = AgglomerativeClustering(
+        n_clusters=None,
+        affinity="precomputed",
+        linkage="average",
+        distance_threshold=0.6  # adjust between 0.4–0.8
+    )
+    top_labels = top_cluster.fit_predict(dist)
+    progress.progress(s/steps); s+=1
 
-    # 4) Name top clusters
-    status_text.text(f"{step}/{steps} – Naming top clusters…")
-    stop_words = {"best","free","online","software","generator"}
+    # 4. Name top clusters
+    status.text(f"{s}/{steps} – Naming top clusters…")
     top_clusters = {}
-    for idx, lab in enumerate(top_labels):
-        top_clusters.setdefault(lab, []).append(idx)
-    top_names = {
-        lab: name_cluster(keywords, inds, stop_words)
-        for lab, inds in top_clusters.items()
-    }
-    progress.progress(step/steps)
-    step += 1
+    for i, lab in enumerate(top_labels):
+        top_clusters.setdefault(lab, []).append(i)
+    top_names = {lab: name_cluster(keywords, inds) 
+                 for lab, inds in top_clusters.items()}
+    progress.progress(s/steps); s+=1
 
-    # 5) Sub-clustering within each top cluster
-    status_text.text(f"{step}/{steps} – Sub-clustering…")
-    sub_labels = [None]*len(keywords)
-    sub_names = {}
-    for lab, inds in top_clusters.items():
-        if len(inds)==1:
-            # single => stays alone
-            sub_labels[inds[0]] = 0
-            sub_names[(lab,0)] = keywords[inds[0]]
-        else:
-            # build local sim matrix
-            sub_sim = sim[np.ix_(inds, inds)]
-            labels_local = union_find(sub_sim, threshold=0.6)
-            # reindex so each top cluster's subclusters start at 0
-            for local_idx, sub_lab in zip(inds, labels_local):
-                sub_labels[local_idx] = (lab, sub_lab)
-            # name each subcluster
-            grouped = {}
-            for idx, sub_lab in zip(inds, labels_local):
-                grouped.setdefault(sub_lab, []).append(idx)
-            for sub_lab, sub_inds in grouped.items():
-                sub_names[(lab, sub_lab)] = name_cluster(keywords, sub_inds, stop_words)
-    progress.progress(step/steps)
-    step += 1
-
-    # 6) Assemble DataFrame
-    status_text.text(f"{step}/{steps} – Assembling output…")
+    # 5. Sub‐clustering
+    status.text(f"{s}/{steps} – Sub‐clustering…")
     rows = []
-    for i, kw in enumerate(keywords):
-        top   = top_names[top_labels[i]]
-        sub   = sub_names[sub_labels[i]]
-        rows.append({"Keyword": kw, "Cluster": top, "Subcluster": sub})
-    df = pd.DataFrame(rows)
-    progress.progress(step/steps)
-    step += 1
+    for lab, inds in top_clusters.items():
+        if len(inds) == 1:
+            # single → its own subcluster
+            sub_labels = [0]
+            sub_names = {0: keywords[inds[0]]}
+        else:
+            sub_dist = dist[np.ix_(inds, inds)]
+            sub_cluster = AgglomerativeClustering(
+                n_clusters=None,
+                affinity="precomputed",
+                linkage="average",
+                distance_threshold=0.3  # adjust between 0.2–0.5
+            )
+            sub_labels = sub_cluster.fit_predict(sub_dist)
+            grouped = {}
+            for idx, sl in zip(inds, sub_labels):
+                grouped.setdefault(sl, []).append(idx)
+            sub_names = {
+                sl: name_cluster(keywords, idxs) for sl, idxs in grouped.items()
+            }
 
-    # 7) Done
-    status_text.text("Done!")
+        # 6. Build rows
+        for idx, sl in zip(inds, sub_labels):
+            rows.append({
+                "Keyword": keywords[idx],
+                "Cluster": top_names[lab],
+                "Subcluster": sub_names[sl]
+            })
+    progress.progress(s/steps); s+=1
+
+    status.text("Done!")
     progress.progress(1.0)
-    return df
+
+    return pd.DataFrame(rows)
 
 def main():
-    st.set_page_config(page_title="Keyword Auto-Cluster", layout="wide")
-    st.title("🤖 Hierarchical Auto-Clustering Tool")
+    st.set_page_config(page_title="Hierarchical Clustering", layout="wide")
+    st.title("🔗 Hierarchical Auto-Clustering Tool")
     st.markdown("""
-    • Level 1: BERT + threshold clustering (top clusters)  
-    • Level 2: BERT + threshold within each top cluster (subclusters)  
-    • Named by core token + shortest phrase, entirely automatic.
+1. **Level 1**: Agglomerative clustering (cosine-distance, threshold) → top clusters  
+2. **Level 2**: Within each top cluster, a second pass → sub-clusters  
+3. **Naming**: core token + shortest phrase, 100% automatic  
+4. Tweak `distance_threshold` values for finer/coarser grouping  
     """)
 
-    raw = st.text_area("🔤 Keywords (one per line):", height=300)
-    keywords = [k for k in raw.splitlines() if k.strip()]
+    raw = st.text_area("Enter keywords (one per line):", height=300)
+    kw = [k.strip() for k in raw.splitlines() if k.strip()]
 
-    if st.button("Cluster Keywords") and keywords:
+    if st.button("Cluster Keywords") and kw:
         model = load_model()
         progress = st.progress(0.0)
-        status_text = st.empty()
+        status = st.empty()
         try:
-            df = cluster_and_hierarchy(keywords, model, progress, status_text)
+            df = cluster_hierarchy(kw, model, progress, status)
             st.dataframe(df, use_container_width=True)
             csv = df.to_csv(index=False)
-            st.download_button("📥 Download CSV", data=csv, file_name="clusters.csv", mime="text/csv")
+            st.download_button("📥 Download CSV", data=csv,
+                               file_name="clusters.csv", mime="text/csv")
         except Exception as e:
             st.error(f"Error: {e}")
 
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
