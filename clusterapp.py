@@ -30,7 +30,7 @@ def classify_keywords(keywords):
         embeddings = model.encode(keywords)
 
         # Use KMeans clustering to group similar keywords
-        num_clusters = 3  # Number of clusters you want to generate; adjust based on dataset
+        num_clusters = 3  # Set number of clusters dynamically based on your data
         kmeans = KMeans(n_clusters=num_clusters, random_state=0)
         kmeans.fit(embeddings)
 
@@ -38,7 +38,7 @@ def classify_keywords(keywords):
         cluster_centers = kmeans.cluster_centers_
         cluster_labels = kmeans.labels_
 
-        # Naming clusters based on the most frequent or central keyword in the cluster
+        # Assign the cluster labels and category names based on the clusters
         cluster_names = []
         for cluster in range(num_clusters):
             # Get the indices of keywords in the current cluster
@@ -47,7 +47,8 @@ def classify_keywords(keywords):
             # Extract the keywords that belong to this cluster
             cluster_keywords = [keywords[i] for i in cluster_indices]
 
-            # Find the most frequent or representative keyword in the cluster (you can enhance this logic)
+            # Find the most frequent or representative keyword in the cluster
+            # Here we simply take the most frequent keyword or first one for simplicity
             cluster_name = max(set(cluster_keywords), key=cluster_keywords.count)
             cluster_names.append(cluster_name)
 
@@ -58,7 +59,7 @@ def classify_keywords(keywords):
             progress.progress((cluster + 1) / num_clusters)
             status_text.text(f"Cluster {cluster + 1} processed")
 
-        # Assign the category labels to the dataframe
+        # Create the DataFrame with category labels
         df = pd.DataFrame({"Keyword": keywords, "Assigned Category": category_labels})
 
         return df, cluster_names
