@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.cluster import KMeans
 import numpy as np
 import time
 
@@ -29,42 +29,46 @@ def classify_keywords(keywords):
         # Encode the keywords into embeddings
         embeddings = model.encode(keywords)
 
-        # Calculate the pairwise cosine similarity between keywords
-        similarity_matrix = cosine_similarity(embeddings)
+        # Use KMeans clustering to group similar keywords
+        num_clusters = 3  # Adjust number of clusters based on data
+        kmeans = KMeans(n_clusters=num_clusters, random_state=0)
+        kmeans.fit(embeddings)
 
-        # Use the cosine similarity to cluster keywords
-        # A very basic clustering: keywords with high similarity get grouped together
-        threshold = 0.5  # Similarity threshold to consider keywords as belonging to the same cluster
-        cluster_labels = [-1] * len(keywords)  # Start with all keywords unclassified
-        cluster_count = 0
+        # Assign categories and cluster names based on the cluster centers
+        cluster_centers = kmeans.cluster_centers_
+        cluster_labels = kmeans.labels_
+
+        # Define possible cluster names based on known keywords
+        photo_keywords = ["photo", "editing", "editor", "photo editor", "image"]
+        video_keywords = ["video", "editing", "editor", "video editor", "film"]
         
-        for i in range(len(keywords)):
-            if cluster_labels[i] == -1:  # If not yet classified
-                cluster_labels[i] = cluster_count
-                # Find all keywords that have high similarity to this one
-                for j in range(i + 1, len(keywords)):
-                    if cluster_labels[j] == -1 and similarity_matrix[i][j] > threshold:
-                        cluster_labels[j] = cluster_count
-                cluster_count += 1
-
-        # Assign categories based on cluster assignment
-        cluster_keywords = {i: [] for i in range(cluster_count)}  # Initialize empty lists for each cluster
-        for idx, label in enumerate(cluster_labels):
-            cluster_keywords[label].append(keywords[idx])
-
-        # Assign cluster names based on the most representative keywords
         cluster_names = []
-        for cluster in cluster_keywords:
-            # Use the most frequent keyword in the cluster as the cluster name
-            cluster_keywords_list = cluster_keywords[cluster]
-            cluster_name = max(set(cluster_keywords_list), key=cluster_keywords_list.count)
+        for cluster in range(num_clusters):
+            # Get the indices of keywords in the current cluster
+            cluster_indices = [i for i, label in enumerate(cluster_labels) if label == cluster]
+
+            # Extract the keywords that belong to this cluster
+            cluster_keywords = [keywords[i] for i in cluster_indices]
+
+            # Determine if the cluster is related to photo or video based on keyword occurrence
+            photo_count = sum(any(word in kw.lower() for word in photo_keywords) for kw in cluster_keywords)
+            video_count = sum(any(word in kw.lower() for word in video_keywords) for kw in cluster_keywords)
+
+            # Name the cluster based on the most frequent category
+            if photo_count > video_count:
+                cluster_name = "Photo Editor"
+            elif video_count > photo_count:
+                cluster_name = "Video Editor"
+            else:
+                cluster_name = "General"
+
             cluster_names.append(cluster_name)
 
             # Assign the cluster name to the respective keywords
-            for kw in cluster_keywords_list:
+            for kw in cluster_keywords:
                 category_labels.append(cluster_name)
 
-            progress.progress((cluster + 1) / cluster_count)
+            progress.progress((cluster + 1) / num_clusters)
             status_text.text(f"Cluster {cluster + 1} processed")
             time.sleep(0.5)
 
