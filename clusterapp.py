@@ -30,7 +30,7 @@ def classify_keywords(keywords):
         embeddings = model.encode(keywords)
 
         # Use KMeans clustering to group similar keywords
-        num_clusters = 3  # Adjust number of clusters based on data
+        num_clusters = 3  # Set number of clusters dynamically based on your data
         kmeans = KMeans(n_clusters=num_clusters, random_state=0)
         kmeans.fit(embeddings)
 
@@ -50,11 +50,11 @@ def classify_keywords(keywords):
             # Extract the keywords that belong to this cluster
             cluster_keywords = [keywords[i] for i in cluster_indices]
 
-            # Determine if the cluster is related to photo or video based on keyword occurrence
+            # Initialize counts for photo/video-related keywords
             photo_count = sum(any(word in kw.lower() for word in photo_keywords) for kw in cluster_keywords)
             video_count = sum(any(word in kw.lower() for word in video_keywords) for kw in cluster_keywords)
 
-            # Name the cluster based on the most frequent category
+            # Check for photo/video-related keywords and assign category
             if photo_count > video_count:
                 cluster_name = "Photo Editor"
             elif video_count > photo_count:
