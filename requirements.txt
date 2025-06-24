@@ -6,5 +6,7 @@ numpy
 python-dotenv
 gspread
 oauth2client
-transformers
-torch
+streamlit==1.21.0  # or whatever version you're using
+transformers==4.28.0  # Ensure compatibility with torch
+torch==2.0.1  # Compatible with transformers
+pandas==1.5.3  # Add other dependencies as needed
