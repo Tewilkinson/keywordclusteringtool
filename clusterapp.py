@@ -27,9 +27,10 @@ candidate_labels = [
     "Branding", "Marketing", "Technology", "Cloud", "Business"
 ]
 
-# Function to classify keywords
+# Function to classify keywords and map intent
 def classify_keywords(keywords):
     category_labels = []
+    intent_labels = []
     progress = st.progress(0)
     status_text = st.empty()
 
@@ -38,20 +39,38 @@ def classify_keywords(keywords):
             if not kw.strip():
                 continue  # Skip empty keywords
 
-            # Use the zero-shot classification to predict categories for each keyword
+            # Predict the category using zero-shot classification
             result = classifier(kw, candidate_labels)
             category = result['labels'][0]  # Take the top predicted label
             category_labels.append(category)
+
+            # Intent logic based on keyword patterns
+            intent = "Generic"  # Default intent
+
+            if "free" in kw.lower() and "online" in kw.lower():
+                intent = "Free & Online"
+            elif "free" in kw.lower():
+                intent = "Free"
+            elif "online" in kw.lower():
+                intent = "Online"
+            elif "course" in kw.lower() or "tutorial" in kw.lower():
+                intent = "Course"
+            elif "software" in kw.lower():
+                intent = "Software"
+            elif "certification" in kw.lower():
+                intent = "Certification"
+            
+            intent_labels.append(intent)
 
             progress.progress((i + 1) / len(keywords))
             status_text.text(f"Classified {i + 1} of {len(keywords)}")
             time.sleep(0.5)
 
-        return category_labels
+        return category_labels, intent_labels
 
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
-        return []
+        return [], []
 
 # Button to trigger the classification
 if keyword_input.strip():
@@ -60,10 +79,11 @@ if keyword_input.strip():
         df = pd.DataFrame({"Keyword": keywords})
 
         # Classify the keywords
-        category_labels = classify_keywords(keywords)
+        category_labels, intent_labels = classify_keywords(keywords)
 
         if category_labels:
             df["Assigned Category"] = category_labels
+            df["Intent"] = intent_labels
             st.success("Classification complete!")
             st.dataframe(df)
 
