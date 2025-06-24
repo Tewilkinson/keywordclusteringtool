@@ -9,42 +9,45 @@ st.title("🤖 Auto-Clustering Keyword Tool")
 
 st.markdown("""
 Paste your keywords (one per line) and let BERT + Affinity Propagation  
-automatically discover clusters and name them by exemplar queries.
+automatically discover clusters and name them by their most central keyword.
 """)
 
 keywords = [k.strip() for k in st.text_area("🔤 Keywords:", height=300).splitlines() if k.strip()]
 
 if st.button("Cluster Keywords") and keywords:
-    # 1. Embed
+    # 1. Embed + normalize
     model = SentenceTransformer("all-MiniLM-L6-v2")
-    embeddings = model.encode(keywords, normalize_embeddings=True)
+    emb = model.encode(keywords, normalize_embeddings=True)
 
     # 2. Cosine-similarity matrix
-    sim_matrix = np.dot(embeddings, embeddings.T)
+    sim = np.dot(emb, emb.T)
 
-    # 3. Affinity Propagation (auto-n_clusters + exemplars)
+    # 3. Affinity Propagation
     ap = AffinityPropagation(affinity="precomputed", random_state=42)
-    ap.fit(sim_matrix)
+    ap.fit(sim)
     labels = ap.labels_
-    exemplars = ap.cluster_centers_indices_
 
-    # 4. Build cluster names from exemplars
-    cluster_names = {i: keywords[idx] for i, idx in enumerate(exemplars)}
+    # 4. For each cluster, pick the medoid (member with highest total similarity) as name
+    cluster_names = {}
+    for c in np.unique(labels):
+        members = np.where(labels == c)[0]
+        # sum of similarities within cluster
+        intra_sim = sim[np.ix_(members, members)].sum(axis=1)
+        medoid = members[np.argmax(intra_sim)]
+        cluster_names[c] = keywords[medoid]
 
-    # 5. Assemble DataFrame
+    # 5. Build DataFrame
     df = pd.DataFrame({
         "Keyword": keywords,
-        "Cluster": [ cluster_names[label] for label in labels ]
+        "Cluster": [cluster_names[l] for l in labels]
     })
 
     st.success(f"Found {len(cluster_names)} clusters.")
     st.dataframe(df)
 
-    # Show legend of cluster → exemplar
-    st.write("### Cluster exemplars (names):")
-    for i, name in cluster_names.items():
-        st.write(f"• **Cluster {i}** → {name}")
+    st.write("### Cluster names (medoids):")
+    for c, name in cluster_names.items():
+        st.write(f"• Cluster {c} → {name}")
 
-    # Download CSV
     csv = df.to_csv(index=False)
     st.download_button("📥 Download CSV", csv, "clusters.csv", "text/csv")
