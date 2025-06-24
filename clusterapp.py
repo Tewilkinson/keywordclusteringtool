@@ -11,7 +11,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 def load_model():
     return SentenceTransformer("all-MiniLM-L6-v2")
 
-
 def hierarchical_cluster_and_name(keywords, model, progress, status_text, level1_threshold=0.6):
     """
     Perform 2-level clustering:
@@ -37,10 +36,12 @@ def hierarchical_cluster_and_name(keywords, model, progress, status_text, level1
     # 3) Level 1 clustering (Agglomerative)
     status_text.text(f"{step}/{total_steps} – Level 1 clustering…")
     dist = 1 - sim  # cosine distance
-    agg = AgglomerativeClustering(n_clusters=None,
-                                  distance_threshold=level1_threshold,
-                                  affinity='precomputed',
-                                  linkage='average')
+    agg = AgglomerativeClustering(
+        n_clusters=None,
+        distance_threshold=level1_threshold,
+        metric='precomputed',
+        linkage='average'
+    )
     lvl1_labels = agg.fit_predict(dist)
     progress.progress(step / total_steps)
     step += 1
@@ -128,7 +129,7 @@ def main():
     raw = st.text_area("🔤 Keywords:", height=300)
     keywords = [k.strip() for k in raw.splitlines() if k.strip()]
 
-    threshold = st.slider("Level 1 distance threshold", 0.3, 1.0, 0.6, 0.05)
+    threshold = st.slider("Level 1 distance threshold", 0.3, 1.0, 0.6, 0.05)
 
     if st.button("Cluster Keywords") and keywords:
         model = load_model()
