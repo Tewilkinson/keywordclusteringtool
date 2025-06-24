@@ -7,7 +7,7 @@ import time
 
 # --- Streamlit UI Setup ---
 st.set_page_config(page_title="Keyword Category Classifier", layout="wide")
-st.title("🎯 Keyword Category Classifier")
+st.title("Keyword Category Classifier")
 
 st.markdown("""
 Paste your keywords below. This tool will automatically categorize the keywords into clusters and name each cluster based on the keywords it contains.
