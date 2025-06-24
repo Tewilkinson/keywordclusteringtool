@@ -4,13 +4,30 @@ import numpy as np
 import re
 
 from sentence_transformers import SentenceTransformer
-from sklearn.cluster import AgglomerativeClustering
-from sklearn.metrics.pairwise import cosine_similarity
 
-# — Cache the model —
+# Cache the model
 @st.cache_resource
 def load_model():
     return SentenceTransformer("all-MiniLM-L6-v2")
+
+def union_find(sim, threshold):
+    N = sim.shape[0]
+    parent = list(range(N))
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    def union(i,j):
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[rj] = ri
+
+    for i in range(N):
+        for j in range(i+1, N):
+            if sim[i,j] > threshold:
+                union(i,j)
+    return [find(i) for i in range(N)]
 
 def name_cluster(keywords, inds):
     stop = {"best","free","online","software","generator"}
@@ -25,104 +42,60 @@ def name_cluster(keywords, inds):
         return min(cands, key=len) if cands else keywords[inds[0]]
     return keywords[inds[0]]
 
-def cluster_hierarchy(keywords, model, progress, status):
-    steps = 6
-    step = 1
+def cluster_two_levels(keywords, model, progress, status):
+    steps = 5
+    s = 1
 
-    # 1. Embed
-    status.text(f"{step}/{steps} – Embedding…")
+    # 1) Embed
+    status.text(f"{s}/{steps} – Embedding keywords…")
     emb = model.encode(keywords, normalize_embeddings=True)
-    progress.progress(step/steps); step += 1
+    progress.progress(s/steps); s+=1
 
-    # 2. Cosine distance
-    status.text(f"{step}/{steps} – Computing distances…")
-    sim = cosine_similarity(emb)
-    dist = 1 - sim
-    progress.progress(step/steps); step += 1
+    # 2) Full‐matrix cosine similarity
+    status.text(f"{s}/{steps} – Computing similarity…")
+    sim = np.dot(emb, emb.T)
+    progress.progress(s/steps); s+=1
 
-    # 3. Top‐level clustering
-    status.text(f"{step}/{steps} – Top‐level clustering…")
-    top_cluster = AgglomerativeClustering(
-        n_clusters=None,
-        metric="precomputed",
-        linkage="average",
-        distance_threshold=0.6
-    )
-    top_labels = top_cluster.fit_predict(dist)
-    progress.progress(step/steps); step += 1
+    # 3) Level-1 clustering (broad)
+    status.text(f"{s}/{steps} – Level-1 clustering…")
+    lvl1_labels = union_find(sim, threshold=0.60)
+    progress.progress(s/steps); s+=1
 
-    # 4. Name top clusters
-    status.text(f"{step}/{steps} – Naming top clusters…")
-    top_clusters = {}
-    for i, lab in enumerate(top_labels):
-        top_clusters.setdefault(lab, []).append(i)
-    top_names = {lab: name_cluster(keywords, inds)
-                 for lab, inds in top_clusters.items()}
-    progress.progress(step/steps); step += 1
+    # Name level-1 clusters
+    lvl1_clusters = {}
+    for i, lab in enumerate(lvl1_labels):
+        lvl1_clusters.setdefault(lab, []).append(i)
+    lvl1_names = {lab: name_cluster(keywords, inds) 
+                  for lab, inds in lvl1_clusters.items()}
 
-    # 5. Sub‐clustering within each top cluster
-    status.text(f"{step}/{steps} – Sub‐clustering…")
+    # 4) Level-2 clustering (intent) within each lvl1
+    status.text(f"{s}/{steps} – Level-2 clustering…")
     rows = []
-    for lab, inds in top_clusters.items():
-        if len(inds) == 1:
+    for lab, inds in lvl1_clusters.items():
+        if len(inds)==1:
+            # singleton → just itself
             sub_labels = [0]
             sub_names = {0: keywords[inds[0]]}
         else:
-            sub_dist = dist[np.ix_(inds, inds)]
-            sub_cluster = AgglomerativeClustering(
-                n_clusters=None,
-                metric="precomputed",
-                linkage="average",
-                distance_threshold=0.3
-            )
-            local_labels = sub_cluster.fit_predict(sub_dist)
+            sub_sim = sim[np.ix_(inds, inds)]
+            sub_lbls = union_find(sub_sim, threshold=0.50)
+            # group
             grouped = {}
-            for idx, sl in zip(inds, local_labels):
+            for idx, sl in zip(inds, sub_lbls):
                 grouped.setdefault(sl, []).append(idx)
-            sub_names = {
-                sl: name_cluster(keywords, sub_inds)
-                for sl, sub_inds in grouped.items()
-            }
-            sub_labels = local_labels
+            sub_names = {sl: name_cluster(keywords, grp) 
+                         for sl, grp in grouped.items()}
+            sub_labels = sub_lbls
 
+        # assemble rows
         for idx, sl in zip(inds, sub_labels):
             rows.append({
                 "Keyword": keywords[idx],
-                "Cluster": top_names[lab],
-                "Subcluster": sub_names[sl]
+                "Cluster": lvl1_names[lab],
+                "Intent": sub_names[sl]
             })
-    progress.progress(step/steps); step += 1
+    progress.progress(s/steps); s+=1
 
-    # 6. Done
+    # 5) Done
     status.text("Done!")
-    progress.progress(1.0)
-    return pd.DataFrame(rows)
-
-def main():
-    st.set_page_config(page_title="Hierarchical Clustering", layout="wide")
-    st.title("🔗 Hierarchical Auto-Clustering Tool")
-    st.markdown("""
-1. Level 1: Agglomerative (cosine-distance, threshold=0.6) → top clusters  
-2. Level 2: Agglomerative within each top cluster (threshold=0.3) → subclusters  
-3. Names by core token + shortest phrase; fully automatic.  
-Tweak `distance_threshold` for finer/coarser grouping.
-    """)
-
-    raw = st.text_area("Enter keywords (one per line):", height=300)
-    keywords = [k.strip() for k in raw.splitlines() if k.strip()]
-
-    if st.button("Cluster Keywords") and keywords:
-        model = load_model()
-        progress = st.progress(0.0)
-        status = st.empty()
-        try:
-            df = cluster_hierarchy(keywords, model, progress, status)
-            st.dataframe(df, use_container_width=True)
-            csv = df.to_csv(index=False)
-            st.download_button("📥 Download CSV", data=csv,
-                               file_name="clusters.csv", mime="text/csv")
-        except Exception as e:
-            st.error(f"Error: {e}")
-
-if __name__=="__main__":
-    main()
+    pr
